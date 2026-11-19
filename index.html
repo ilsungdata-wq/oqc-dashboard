@@ -384,6 +384,7 @@ tbody td{font-size:13px}
  #hourlyPanel th,#hourlyPanel td{padding:8px 5px;white-space:nowrap}
  #hourlyPanel .tablewrap{overflow-x:auto}
 }
+.tv-hour-grid .tv-hour-errors{color:#ffb1bc;text-align:center;font-size:clamp(13px,1.05vw,20px);margin-top:5px;white-space:nowrap}
 .tv-hour-grid{grid-template-columns:repeat(var(--hour-count),minmax(0,1fr))}
 @media(max-width:700px){.tv-hour-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.tv-hour-grid .tv-day-chart{height:70px}}
 .tv-line-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:clamp(7px,1vh,14px);align-content:center;height:100%}
@@ -560,7 +561,7 @@ function exportWebJSON(){downloadBlob(JSON.stringify(dataset),'current.json','ap
 function restoreOctober(){if(!confirm('Khôi phục dữ liệu tháng 10 đã đóng gói?'))return;dataset=october;try{localStorage.removeItem('oqc_imported_data_v2')}catch(e){}refreshSelects();render();renderSettings()}
 function tvCard(label,value,detail,cls='accent',valueWarn=false){return `<div class="tv-big-card ${cls}"><div class="tv-card-label">${label}</div><div class="tv-card-value ${valueWarn?'tv-value-warn':cls==='good'?'tv-value-good':''}">${value}</div><div class="tv-card-detail">${detail}</div></div>`}
 function tvPercent(s){return s==null?'N/A':fmt(s)}
-function tvOutputHours(day){
+function tvOutputHours(day,errors){
  const totals=new Map();
  for(const row of publishedHours){
   if(row[0]===day)totals.set(row[5],(totals.get(row[5])||0)+row[4]);
@@ -568,15 +569,19 @@ function tvOutputHours(day){
  const hours=[...totals].sort(([a],[b])=>a.localeCompare(b)).slice(-7);
  const max=Math.max(1,...hours.map(([,qty])=>qty));
  return `<section class="tv-panel tv-week-panel">
-  <div class="tv-panel-title">SẢN LƯỢNG THEO GIỜ · PRODUCTION P</div>
-  ${hours.length?`<div class="tv-week-grid tv-hour-grid" style="--hour-count:${hours.length}">${hours.map(([slot,qty])=>`
+  <div class="tv-panel-title">SẢN LƯỢNG VÀ LỖI OQC THEO GIỜ</div>
+  ${hours.length?`<div class="tv-week-grid tv-hour-grid" style="--hour-count:${hours.length}">${hours.map(([slot,qty])=>{
+   const [start,end]=slot.split('-');
+   const count=errors.reduce((sum,row)=>row[6]>=start&&row[6]<end?sum+row[5]:sum,0);
+   return `
    <div class="tv-day-card"><div class="tv-day-date">${esc(slot)}</div>
    <div class="tv-day-count">${num(qty)}</div><div class="tv-day-label">OUTPUT (EA)</div>
-   <div class="tv-day-chart"><div class="tv-day-column" style="height:${100*qty/max}%"></div></div></div>`).join('')}</div>`:'<p>Chưa có sản lượng theo giờ cho ngày này.</p>'}
+   <div class="tv-day-chart"><div class="tv-day-column" style="height:${100*qty/max}%"></div></div>
+   <div class="tv-hour-errors"><strong>${num(count)}</strong> lượt lỗi OQC</div></div>`;}).join('')}</div>`:'<p>Chưa có sản lượng theo giờ cho ngày này.</p>'}
  </section>`;
 }
 
-function tvDailyOverview(s,day){let breach=s.target!=null&&s.ratio!=null&&s.ratio>s.target;return `<div class="tv-two-overview"><section class="tv-overview-kpis">${tvCard('OUTPUT',num(s.out),'Sản lượng trong ngày','accent')}${tvCard('LƯỢT LỖI OQC',num(s.ng),'Tổng lỗi','critical')}${tvCard('OQC / OUTPUT',fmt(s.ratio),s.target==null?'Chưa có Target':'Target '+fmt(s.target),s.target==null?'accent':(breach?'critical':'good'),breach)}${tvCard('SCRAP EA',num(s.scrap),'Lỗi phân loại Scrap','warn',true).replace('tv-big-card warn','tv-big-card warn scrap-red')}${tvCard('SCRAP (%)',fmt(s.scrapRatio),'Scrap / Output','warn',true).replace('tv-big-card warn','tv-big-card warn scrap-red')}${tvCard('LINE SẢN XUẤT',num(s.lineCount),'Line có Output','accent')}</section>${tvOutputHours(day)}</div>`}
+function tvDailyOverview(s,day){let breach=s.target!=null&&s.ratio!=null&&s.ratio>s.target;return `<div class="tv-two-overview"><section class="tv-overview-kpis">${tvCard('OUTPUT',num(s.out),'Sản lượng trong ngày','accent')}${tvCard('LƯỢT LỖI OQC',num(s.ng),'Tổng lỗi','critical')}${tvCard('OQC / OUTPUT',fmt(s.ratio),s.target==null?'Chưa có Target':'Target '+fmt(s.target),s.target==null?'accent':(breach?'critical':'good'),breach)}${tvCard('SCRAP EA',num(s.scrap),'Lỗi phân loại Scrap','warn',true).replace('tv-big-card warn','tv-big-card warn scrap-red')}${tvCard('SCRAP (%)',fmt(s.scrapRatio),'Scrap / Output','warn',true).replace('tv-big-card warn','tv-big-card warn scrap-red')}${tvCard('LINE SẢN XUẤT',num(s.lineCount),'Line có Output','accent')}</section>${tvOutputHours(day,s.errors)}</div>`}
 function tvRankGroup(s,index,n){let top=groupByPair(s.errors,s.output,index).filter(r=>r.output>0).sort((a,b)=>(b.ng/b.output)-(a.ng/a.output)).slice(0,n);let fallback=Math.max(.01,...top.map(r=>rate(r.ng,r.output)||0));return `<div class="tv-leaderboard">${top.map(r=>{let p=rate(r.ng,r.output),tar=index===3?effectiveTarget(r.key):targetByGroup(r,1,s.output),bad=tar!=null&&p>tar,scale=tar!==null&&tar>0?tar:fallback,width=Math.max(0,Math.min(100,p/scale*100));return `<div class="tv-leader-row"><div class="tv-label">${esc(r.key)}<div class="tv-mini">${num(r.ng)} lỗi / ${num(r.output)} Output</div></div><div class="tv-bar"><span class="${tar===null?'':(bad?'bad':'good')}" style="width:${width.toFixed(1)}%"></span></div><div class="tv-number" style="color:${tar===null?'var(--tv-fg)':(bad?'var(--tv-critical)':'var(--tv-good)')}">${fmt(p)}<div class="tv-mini">${tar===null?'':('Target '+fmt(tar))}</div></div></div>`}).join('')}</div>`}
 function tvAnalyticTwo(s){let map=new Map();for(const r of s.errors){let k=JSON.stringify([r[1],r[3],r[4]]);map.set(k,(map.get(k)||0)+Number(r[5]||0))}let worst=[...map].sort((a,b)=>b[1]-a[1]).slice(0,5);let rankLine=groupByPair(s.errors,s.output,1).filter(r=>r.output>0&&r.scrap>0).sort((a,b)=>(b.scrap/b.output)-(a.scrap/a.output)).slice(0,3);let categories=aggregate(s.errors,4,5).sort((a,b)=>b.value-a.value).slice(0,2);
  return `<div class="tv-two-analysis"><div class="tv-two-compare"><section class="tv-panel"><div class="tv-panel-title">MODEL · OQC (%) CAO NHẤT</div>${tvRankGroup(s,3,5)}</section><section class="tv-panel"><div class="tv-panel-title">TOP 5 LINE · OQC (%) CAO NHẤT</div>${tvRankGroup(s,1,5)}</section></div><div class="tv-two-bottom"><section class="tv-panel"><div class="tv-panel-title">TOP 5 WORST · LINE / MODEL / NHÓM LỖI</div><table class="tv-worst-table tv-worst-small"><thead><tr><th>TOP</th><th>LINE</th><th>MODEL</th><th>NHÓM LỖI</th><th>SỐ LỖI</th></tr></thead><tbody>${worst.map(([key,qty],i)=>{let [line,model,defect]=JSON.parse(key);return `<tr><td class="tv-table-rank">#${i+1}</td><td>${esc(line)}</td><td>${esc(model)}</td><td class="${/scrap/i.test(defect)?'tv-scrap-table':''}">${esc(defect)}</td><td class="tv-table-qty ${/scrap/i.test(defect)?'tv-scrap-table':''}">${num(qty)}</td></tr>`}).join('')}</tbody></table></section><section class="tv-panel tv-spotlights"><div class="tv-panel-title">SCRAP & NHÓM LỖI NỔI BẬT</div><div class="tv-spot-head">Scrap theo Line (EA / %)</div>${rankLine.map(r=>`<div class="tv-spot-row scrap-row"><b>${esc(r.key)}</b><span>${num(r.scrap)} EA</span><strong>${fmt(rate(r.scrap,r.output))}</strong></div>`).join('')||'<p>Không có Scrap</p>'}<div class="tv-spot-head">Nhóm lỗi nhiều nhất</div>${categories.map(r=>`<div class="tv-spot-row ${/scrap/i.test(r.key)?'scrap-row':''}"><b>${esc(r.key)}</b><strong>${num(r.value)} lỗi</strong></div>`).join('')}</section></div></div>`
